@@ -24,7 +24,8 @@ public class FinanceController(IFinanceService financeService) : ControllerBase
             AccountName = body.AccountName,
             CategoryName = body.CategoryName,
             ReceivedAt = body.ReceivedAt,
-            Amount = body.Amount
+            Amount = body.Amount,
+            Type = body.Type
         }, token);
 
     [HttpPut("incomes/{id:int}")]
@@ -37,7 +38,8 @@ public class FinanceController(IFinanceService financeService) : ControllerBase
             AccountName = body.AccountName,
             CategoryName = body.CategoryName,
             ReceivedAt = body.ReceivedAt,
-            Amount = body.Amount
+            Amount = body.Amount,
+            Type = body.Type
         }, token);
 
     [HttpDelete("incomes/{id:int}")]
@@ -147,6 +149,19 @@ public class FinanceController(IFinanceService financeService) : ControllerBase
             token);
     }
 
+    [HttpGet("card-invoice-payment")]
+    public async Task<CreditCardInvoicePaymentResponse> GetCardInvoicePayment(
+        [FromQuery] int year,
+        [FromQuery] int month,
+        CancellationToken token) =>
+        await financeService.GetCardInvoicePaymentAsync(UserId, year, month, token);
+
+    [HttpPost("card-invoice-payment")]
+    public async Task<CreditCardInvoicePaymentResponse> PayCardInvoice(
+        CreditCardInvoicePaymentRequest request,
+        CancellationToken token) =>
+        await financeService.PayCardInvoiceAsync(UserId, request, token);
+
     [HttpPost("card-purchases")]
     public Task<CardPurchaseResponse> CreateCardPurchase(CreditCardPurchaseRequest request, CancellationToken token) =>
         SaveCardPurchaseAsync(request, null, token);
@@ -178,6 +193,37 @@ public class FinanceController(IFinanceService financeService) : ControllerBase
     [HttpDelete("benefit-entries/{id:int}")]
     public Task<bool> DeleteBenefitEntry(int id, CancellationToken token) => DeleteAsync<BenefitEntry>(id, token);
 
+    [HttpGet("investments")]
+    public Task<List<InvestmentResponse>> GetInvestments(CancellationToken token) =>
+        financeService.GetInvestmentsAsync(UserId, token);
+
+    [HttpPost("investments")]
+    public Task<InvestmentResponse> CreateInvestment(InvestmentRequest request, CancellationToken token) =>
+        financeService.SaveInvestmentAsync(request, null, UserId, token);
+
+    [HttpPut("investments/{id:int}")]
+    public Task<InvestmentResponse> UpdateInvestment(int id, InvestmentRequest request, CancellationToken token) =>
+        financeService.SaveInvestmentAsync(request, id, UserId, token);
+
+    [HttpDelete("investments/{id:int}")]
+    public Task<bool> DeleteInvestment(int id, CancellationToken token) => DeleteAsync<Investment>(id, token);
+
+    [HttpPost("investments/{id:int}/withdrawals")]
+    public Task<InvestmentWithdrawalResponse> WithdrawInvestment(
+        int id,
+        InvestmentWithdrawalRequest request,
+        CancellationToken token) =>
+        financeService.WithdrawInvestmentAsync(id, request, UserId, token);
+
+    [HttpDelete("investments/{id:int}/withdrawals/{withdrawalId:int}")]
+    public async Task<IActionResult> DeleteInvestmentWithdrawal(
+        int id,
+        int withdrawalId,
+        CancellationToken token) =>
+        await financeService.DeleteInvestmentWithdrawalAsync(id, withdrawalId, UserId, token)
+            ? NoContent()
+            : NotFound();
+
     [HttpGet("summary/monthly")]
     public async Task<ActionResult<MonthlySummary>> GetMonthlySummary([FromQuery] int year, [FromQuery] int month, CancellationToken token) =>
         await financeService.GetMonthlySummaryAsync(UserId, year, month, token);
@@ -203,9 +249,14 @@ public class FinanceController(IFinanceService financeService) : ControllerBase
         CancellationToken token) where T : class, IUserOwnedEntity
     {
         var entity = create(request, id, UserId);
-        if (id is not null && await financeService.GetByIdAsync<T>(id.Value, UserId, token) is null)
+        if (id is not null)
         {
-            throw new KeyNotFoundException("Registro não encontrado.");
+            var existing = await financeService.GetByIdAsync<T>(id.Value, UserId, token)
+                ?? throw new KeyNotFoundException("Registro não encontrado.");
+            if (existing is Income { InvestmentWithdrawalId: not null })
+            {
+                throw new ArgumentException("Esta receita é vinculada a uma retirada. Exclua ou edite a retirada na área de Investimentos.");
+            }
         }
         return await financeService.SaveAsync(entity, id, UserId, token);
     }
@@ -240,8 +291,13 @@ public class FinanceController(IFinanceService financeService) : ControllerBase
         return await financeService.SaveCardPurchaseAsync(request, id, UserId, token);
     }
 
-    private Task<BenefitEntry> SaveBenefitEntryAsync(BenefitEntryRequest request, int? id, CancellationToken token) =>
-        SaveAsync<BenefitEntry, BenefitEntryRequest>(request, id, (body, entityId, userId) => new BenefitEntry
+    private Task<BenefitEntry> SaveBenefitEntryAsync(BenefitEntryRequest request, int? id, CancellationToken token)
+    {
+        if (request.Type != BenefitEntryType.Purchase)
+        {
+            throw new ArgumentException("Créditos do benefício devem ser registrados na aba Receitas.");
+        }
+        return SaveAsync<BenefitEntry, BenefitEntryRequest>(request, id, (body, entityId, userId) => new BenefitEntry
         {
             Id = entityId ?? 0,
             UserId = userId,
@@ -250,6 +306,7 @@ public class FinanceController(IFinanceService financeService) : ControllerBase
             Amount = body.Amount,
             Type = body.Type
         }, token);
+    }
 
     private Task<bool> DeleteAsync<T>(int id, CancellationToken token) where T : class, IUserOwnedEntity =>
         financeService.DeleteAsync<T>(id, UserId, token);

@@ -5,6 +5,7 @@ import {
   AuthResponse,
   BenefitEntry,
   BenefitEntryInput,
+  CardInvoicePayment,
   CardPurchase,
   CardPurchaseInput,
   Category,
@@ -13,6 +14,10 @@ import {
   ExpenseInput,
   Income,
   IncomeInput,
+  Investment,
+  InvestmentInput,
+  InvestmentWithdrawal,
+  InvestmentWithdrawalInput,
   MonthlySummary,
 } from './models';
 
@@ -101,6 +106,14 @@ export class ApiService {
     return this.http.get<CardPurchase[]>(`${API_URL}/card-purchases`, { params: { year, month } });
   }
 
+  getCardInvoicePayment(year: number, month: number) {
+    return this.http.get<CardInvoicePayment>(`${API_URL}/card-invoice-payment`, { params: { year, month } });
+  }
+
+  payCardInvoice(year: number, month: number, paidAt: string) {
+    return this.http.post<CardInvoicePayment>(`${API_URL}/card-invoice-payment`, { year, month, paidAt });
+  }
+
   saveCardPurchase(data: CardPurchaseInput, id?: number) {
     return id
       ? this.http.put<CardPurchase>(`${API_URL}/card-purchases/${id}`, data)
@@ -127,6 +140,28 @@ export class ApiService {
 
   deleteBenefitEntry(id: number) {
     return this.http.delete<boolean>(`${API_URL}/benefit-entries/${id}`);
+  }
+
+  getInvestments() {
+    return this.http.get<Investment[]>(`${API_URL}/investments`);
+  }
+
+  saveInvestment(data: InvestmentInput, id?: number) {
+    return id
+      ? this.http.put<Investment>(`${API_URL}/investments/${id}`, data)
+      : this.http.post<Investment>(`${API_URL}/investments`, data);
+  }
+
+  deleteInvestment(id: number) {
+    return this.http.delete<boolean>(`${API_URL}/investments/${id}`);
+  }
+
+  withdrawInvestment(id: number, data: InvestmentWithdrawalInput) {
+    return this.http.post<InvestmentWithdrawal>(`${API_URL}/investments/${id}/withdrawals`, data);
+  }
+
+  deleteInvestmentWithdrawal(investmentId: number, withdrawalId: number) {
+    return this.http.delete<void>(`${API_URL}/investments/${investmentId}/withdrawals/${withdrawalId}`);
   }
 
   getMonthlySummary(year: number, month: number) {

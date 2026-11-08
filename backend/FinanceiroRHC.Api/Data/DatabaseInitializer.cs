@@ -62,6 +62,63 @@ public static class DatabaseInitializer
             """,
             cancellationToken);
 
+        await context.Database.ExecuteSqlRawAsync(
+            """
+            CREATE TABLE IF NOT EXISTS `Investments` (
+                `Id` int NOT NULL AUTO_INCREMENT,
+                `UserId` varchar(255) CHARACTER SET utf8mb4 NOT NULL,
+                `Description` varchar(160) CHARACTER SET utf8mb4 NOT NULL,
+                `ApplicationDate` date NOT NULL,
+                `MaturityDate` date NOT NULL,
+                `Amount` decimal(12,2) NOT NULL,
+                CONSTRAINT `PK_Investments` PRIMARY KEY (`Id`),
+                CONSTRAINT `FK_Investments_AspNetUsers_UserId`
+                    FOREIGN KEY (`UserId`) REFERENCES `AspNetUsers` (`Id`) ON DELETE CASCADE,
+                INDEX `IX_Investments_UserId` (`UserId`)
+            ) CHARACTER SET=utf8mb4 ENGINE=InnoDB;
+            """,
+            cancellationToken);
+
+        await context.Database.ExecuteSqlRawAsync(
+            """
+            CREATE TABLE IF NOT EXISTS `InvestmentWithdrawals` (
+                `Id` int NOT NULL AUTO_INCREMENT,
+                `UserId` varchar(255) CHARACTER SET utf8mb4 NOT NULL,
+                `InvestmentId` int NOT NULL,
+                `WithdrawalDate` date NOT NULL,
+                `Amount` decimal(12,2) NOT NULL,
+                `ReturnAmount` decimal(12,2) NOT NULL DEFAULT 0,
+                CONSTRAINT `PK_InvestmentWithdrawals` PRIMARY KEY (`Id`),
+                CONSTRAINT `FK_InvestmentWithdrawals_Investment`
+                    FOREIGN KEY (`InvestmentId`) REFERENCES `Investments` (`Id`) ON DELETE CASCADE,
+                CONSTRAINT `FK_InvestmentWithdrawals_AspNetUsers_UserId`
+                    FOREIGN KEY (`UserId`) REFERENCES `AspNetUsers` (`Id`) ON DELETE CASCADE,
+                INDEX `IX_InvestmentWithdrawals_UserId_InvestmentId` (`UserId`, `InvestmentId`)
+            ) CHARACTER SET=utf8mb4 ENGINE=InnoDB;
+            """,
+            cancellationToken);
+
+        await context.Database.ExecuteSqlRawAsync(
+            """
+            CREATE TABLE IF NOT EXISTS `CreditCardInvoicePayments` (
+                `Id` int NOT NULL AUTO_INCREMENT,
+                `UserId` varchar(255) CHARACTER SET utf8mb4 NOT NULL,
+                `Year` int NOT NULL,
+                `Month` int NOT NULL,
+                `Amount` decimal(12,2) NOT NULL,
+                `PaidAt` date NOT NULL,
+                `ExpenseId` int NOT NULL,
+                CONSTRAINT `PK_CreditCardInvoicePayments` PRIMARY KEY (`Id`),
+                CONSTRAINT `FK_InvoicePayments_Expense`
+                    FOREIGN KEY (`ExpenseId`) REFERENCES `Expenses` (`Id`) ON DELETE CASCADE,
+                CONSTRAINT `FK_InvoicePayments_AspNetUsers_UserId`
+                    FOREIGN KEY (`UserId`) REFERENCES `AspNetUsers` (`Id`) ON DELETE CASCADE,
+                UNIQUE INDEX `IX_CreditCardInvoicePayments_UserId_Year_Month` (`UserId`, `Year`, `Month`),
+                UNIQUE INDEX `IX_CreditCardInvoicePayments_ExpenseId` (`ExpenseId`)
+            ) CHARACTER SET=utf8mb4 ENGINE=InnoDB;
+            """,
+            cancellationToken);
+
         await AddColumnIfMissingAsync(context, "Expenses", "RecurrenceRuleId", "int NULL", cancellationToken);
         await AddColumnIfMissingAsync(context, "Expenses", "InstallmentNumber", "int NULL", cancellationToken);
         await AddColumnIfMissingAsync(context, "Expenses", "TotalInstallments", "int NULL", cancellationToken);
@@ -73,6 +130,11 @@ public static class DatabaseInitializer
         await AddColumnIfMissingAsync(context, "CreditCardPurchases", "TotalInstallments", "int NULL", cancellationToken);
         await AddColumnIfMissingAsync(context, "CreditCardPurchases", "IsDeleted", "tinyint(1) NOT NULL DEFAULT 0", cancellationToken);
         await MakeColumnNullableIfRequiredAsync(context, "CreditCardPurchases", "TotalAmount", cancellationToken);
+        await AddColumnIfMissingAsync(context, "Incomes", "Type", "int NOT NULL DEFAULT 0", cancellationToken);
+        await AddColumnIfMissingAsync(context, "Incomes", "InvestmentWithdrawalId", "int NULL", cancellationToken);
+        await AddColumnIfMissingAsync(context, "Expenses", "InvestmentId", "int NULL", cancellationToken);
+        await AddColumnIfMissingAsync(context, "InvestmentWithdrawals", "ReturnAmount", "decimal(12,2) NOT NULL DEFAULT 0", cancellationToken);
+        await AddColumnIfMissingAsync(context, "Expenses", "InvestmentWithdrawalId", "int NULL", cancellationToken);
         await AddIndexIfMissingAsync(
             context,
             "Expenses",
@@ -123,6 +185,38 @@ public static class DatabaseInitializer
             "CreditCardPurchases",
             "FK_CreditCardPurchases_Categories_CategoryId",
             "ALTER TABLE `CreditCardPurchases` ADD CONSTRAINT `FK_CreditCardPurchases_Categories_CategoryId` FOREIGN KEY (`CategoryId`) REFERENCES `Categories` (`Id`) ON DELETE RESTRICT;",
+            cancellationToken);
+        await AddForeignKeyIfMissingAsync(
+            context,
+            "Incomes",
+            "FK_Incomes_InvestmentWithdrawal",
+            "ALTER TABLE `Incomes` ADD CONSTRAINT `FK_Incomes_InvestmentWithdrawal` FOREIGN KEY (`InvestmentWithdrawalId`) REFERENCES `InvestmentWithdrawals` (`Id`) ON DELETE CASCADE;",
+            cancellationToken);
+        await AddIndexIfMissingAsync(
+            context,
+            "Incomes",
+            "IX_Incomes_InvestmentWithdrawalId",
+            "`InvestmentWithdrawalId`",
+            unique: true,
+            cancellationToken);
+        await AddForeignKeyIfMissingAsync(
+            context,
+            "Expenses",
+            "FK_Expenses_Investment",
+            "ALTER TABLE `Expenses` ADD CONSTRAINT `FK_Expenses_Investment` FOREIGN KEY (`InvestmentId`) REFERENCES `Investments` (`Id`) ON DELETE CASCADE;",
+            cancellationToken);
+        await AddIndexIfMissingAsync(
+            context,
+            "Expenses",
+            "IX_Expenses_InvestmentWithdrawalId",
+            "`InvestmentWithdrawalId`",
+            unique: true,
+            cancellationToken);
+        await AddForeignKeyIfMissingAsync(
+            context,
+            "Expenses",
+            "FK_Expenses_InvestmentWithdrawal",
+            "ALTER TABLE `Expenses` ADD CONSTRAINT `FK_Expenses_InvestmentWithdrawal` FOREIGN KEY (`InvestmentWithdrawalId`) REFERENCES `InvestmentWithdrawals` (`Id`) ON DELETE CASCADE;",
             cancellationToken);
     }
 

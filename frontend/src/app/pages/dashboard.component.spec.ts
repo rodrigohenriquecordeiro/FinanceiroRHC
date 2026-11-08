@@ -11,6 +11,7 @@ describe('DashboardComponent', () => {
     getCategories: () => of([]),
     getCards: () => of([]),
     getCardPurchases: () => of([]),
+    getCardInvoicePayment: () => of({ isPaid: false, amount: 0, paidAt: null }),
     getBenefitEntries: () => of([]),
     getMonthlySummary: () => of({
       year: new Date().getFullYear(),
@@ -90,5 +91,120 @@ describe('DashboardComponent', () => {
     ];
 
     expect(component.monthCardTotal).toBe(1234.56);
+  });
+
+  it('carries the benefit balance across the year boundary', () => {
+    const fixture = TestBed.createComponent(DashboardComponent);
+    const component = fixture.componentInstance;
+    component.year = 2026;
+    component.month = 1;
+    component.incomes = [
+      {
+        id: 1,
+        description: 'Crédito Flash anterior',
+        accountName: 'Flash',
+        categoryName: 'Benefício',
+        receivedAt: '2025-12-10',
+        amount: 300,
+        type: 1,
+        investmentWithdrawalId: null,
+      },
+      {
+        id: 2,
+        description: 'Crédito Flash atual',
+        accountName: 'Flash',
+        categoryName: 'Benefício',
+        receivedAt: '2026-01-05',
+        amount: 200,
+        type: 1,
+        investmentWithdrawalId: null,
+      },
+    ];
+    component.benefitEntries = [
+      { id: 1, description: 'Recarga antiga', entryDate: '2025-12-11', amount: 100, type: 0 },
+      { id: 2, description: 'Compra antiga', entryDate: '2025-12-12', amount: 25, type: 1 },
+      { id: 3, description: 'Compra atual', entryDate: '2026-01-06', amount: 10, type: 1 },
+    ];
+
+    expect(component.previousMonthLabel).toBe('Dezembro 2025');
+    expect(component.previousBenefitBalance).toBe(375);
+    expect(component.benefitBalance).toBe(565);
+  });
+
+  it('totals the full selected-month expenses', () => {
+    const fixture = TestBed.createComponent(DashboardComponent);
+    const component = fixture.componentInstance;
+    component.year = 2026;
+    component.month = 11;
+    component.expenses = [
+      {
+        id: 1,
+        description: 'Conta paga',
+        categoryId: 1,
+        expenseDate: '2026-11-02',
+        amount: 125.5,
+        isPaid: true,
+        recurrenceType: 0,
+        installmentNumber: null,
+        totalInstallments: null,
+        isInvestmentAdjustment: false,
+        isInvoicePayment: false,
+      },
+      {
+        id: 2,
+        description: 'Conta pendente',
+        categoryId: 1,
+        expenseDate: '2026-11-15',
+        amount: 75.25,
+        isPaid: false,
+        recurrenceType: 0,
+        installmentNumber: null,
+        totalInstallments: null,
+        isInvestmentAdjustment: false,
+        isInvoicePayment: false,
+      },
+      {
+        id: 3,
+        description: 'Outro mês',
+        categoryId: 1,
+        expenseDate: '2026-12-01',
+        amount: 999,
+        isPaid: false,
+        recurrenceType: 0,
+        installmentNumber: null,
+        totalInstallments: null,
+        isInvestmentAdjustment: false,
+        isInvoicePayment: false,
+      },
+    ];
+
+    expect(component.monthExpenseTotal).toBe(200.75);
+  });
+
+  it('shows expense total without the overview metric cards', async () => {
+    const fixture = TestBed.createComponent(DashboardComponent);
+    fixture.detectChanges();
+    await fixture.whenStable();
+    const component = fixture.componentInstance;
+    component.area = 'expenses';
+    component.expenses = [
+      {
+        id: 1,
+        description: 'Conta',
+        categoryId: 1,
+        expenseDate: `${component.year}-${String(component.month).padStart(2, '0')}-02`,
+        amount: 125,
+        isPaid: true,
+        recurrenceType: 0,
+        installmentNumber: null,
+        totalInstallments: null,
+        isInvestmentAdjustment: false,
+        isInvoicePayment: false,
+      },
+    ];
+    fixture.detectChanges();
+
+    expect(fixture.nativeElement.querySelector('.metric-grid')).toBeNull();
+    expect(fixture.nativeElement.textContent).toContain(`Total das despesas em ${component.monthLabel}`);
   });
 });

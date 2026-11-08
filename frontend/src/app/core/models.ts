@@ -11,6 +11,8 @@ export interface Income {
   categoryName: string;
   receivedAt: string;
   amount: number;
+  type: number;
+  investmentWithdrawalId: number | null;
 }
 
 export interface Expense {
@@ -23,6 +25,8 @@ export interface Expense {
   recurrenceType: number;
   installmentNumber: number | null;
   totalInstallments: number | null;
+  isInvestmentAdjustment: boolean;
+  isInvoicePayment: boolean;
 }
 
 export interface Category {
@@ -56,6 +60,30 @@ export interface BenefitEntry {
   type: number;
 }
 
+export interface CardInvoicePayment {
+  isPaid: boolean;
+  amount: number;
+  paidAt: string | null;
+}
+
+export interface Investment {
+  id: number;
+  description: string;
+  applicationDate: string;
+  maturityDate: string;
+  amount: number;
+  withdrawnAmount: number;
+  currentTotal: number;
+  withdrawals: InvestmentWithdrawal[];
+}
+
+export interface InvestmentWithdrawal {
+  id: number;
+  withdrawalDate: string;
+  amount: number;
+  returnAmount: number;
+}
+
 export interface MonthlySummary {
   year: number;
   month: number;
@@ -83,6 +111,7 @@ export interface IncomeInput {
   categoryName: string;
   receivedAt: string;
   amount: number;
+  type: number;
 }
 
 export interface ExpenseInput {
@@ -112,4 +141,17 @@ export interface BenefitEntryInput {
   entryDate: string;
   amount: number;
   type: number;
+}
+
+export interface InvestmentInput {
+  description: string;
+  applicationDate: string;
+  maturityDate: string;
+  amount: number;
+}
+
+export interface InvestmentWithdrawalInput {
+  withdrawalDate: string;
+  amount: number;
+  returnAmount: number;
 }

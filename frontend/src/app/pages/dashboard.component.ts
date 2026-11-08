@@ -8,6 +8,7 @@ import {
   AnnualSummary,
   BenefitEntry,
   BenefitEntryInput,
+  CardInvoicePayment,
   CardPurchase,
   CardPurchaseInput,
   Category,
@@ -59,6 +60,7 @@ export class DashboardComponent implements OnInit {
   notice = '';
   showCategoryEditor = false;
   showCardEditor = false;
+  showInvoicePaymentDialog = false;
   deleteDialog: {
     message: string;
     successMessage: string;
@@ -78,6 +80,8 @@ export class DashboardComponent implements OnInit {
   categoryType = 'expense';
   cardName = '';
   openingBalance = 0;
+  invoicePaymentDate = this.dateValue();
+  invoicePayment: CardInvoicePayment = { isPaid: false, amount: 0, paidAt: null };
 
   incomeForm: IncomeInput = this.emptyIncome();
   expenseForm: ExpenseInput = this.emptyExpense();
@@ -97,11 +101,11 @@ export class DashboardComponent implements OnInit {
   }
 
   get benefitRechargeCount() {
-    return this.monthBenefitEntries.filter((entry) => entry.type === 0).length;
+    return this.monthIncomes.filter((income) => income.type === 1).length;
   }
 
   get benefitPurchaseCount() {
-    return this.monthBenefitEntries.filter((entry) => entry.type === 1).length;
+    return this.monthBenefitEntries.length;
   }
 
   get monthLabel() {
@@ -124,8 +128,21 @@ export class DashboardComponent implements OnInit {
     return this.monthPurchases.reduce((total, item) => total + item.amount, 0);
   }
 
+  get monthIncomeTotal() {
+    return this.monthIncomes.reduce((total, item) => total + item.amount, 0);
+  }
+
+  get monthExpenseTotal() {
+    return this.monthExpenses.reduce((total, item) => total + item.amount, 0);
+  }
+
+  get previousMonthLabel() {
+    const date = new Date(this.year, this.month - 2, 1);
+    return `${this.monthNames[date.getMonth()]} ${date.getFullYear()}`;
+  }
+
   get monthBenefitEntries() {
-    return this.benefitEntries.filter((item) => this.inMonth(item.entryDate));
+    return this.benefitEntries.filter((item) => item.type === 1 && this.inMonth(item.entryDate));
   }
 
   get hasMonthEntries() {
@@ -136,13 +153,13 @@ export class DashboardComponent implements OnInit {
   }
 
   get benefitBalance() {
-    return this.benefitEntries
-      .filter((entry) => {
-        const date = new Date(`${entry.entryDate}T00:00:00`);
-        return date.getFullYear() < this.year
-          || (date.getFullYear() === this.year && date.getMonth() + 1 <= this.month);
-      })
-      .reduce((balance, entry) => balance + (entry.type === 0 ? entry.amount : -entry.amount), 0);
+    return this.incomeBenefitCreditsBefore(this.year, this.month + 1)
+      + this.benefitEntryBalanceBefore(this.year, this.month + 1);
+  }
+
+  get previousBenefitBalance() {
+    return this.incomeBenefitCreditsBefore(this.year, this.month)
+      + this.benefitEntryBalanceBefore(this.year, this.month);
   }
 
   get budgetPercentage() {
@@ -193,7 +210,7 @@ export class DashboardComponent implements OnInit {
 
   editIncome(item: Income) {
     this.editingIncomeId = item.id;
-    this.incomeForm = { description: item.description, accountName: item.accountName, categoryName: item.categoryName, receivedAt: item.receivedAt, amount: item.amount };
+    this.incomeForm = { description: item.description, accountName: item.accountName, categoryName: item.categoryName, receivedAt: item.receivedAt, amount: item.amount, type: item.type };
     this.area = 'income';
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }
@@ -206,8 +223,28 @@ export class DashboardComponent implements OnInit {
     }, 'Receita salva com sucesso.');
   }
 
+  openInvoicePayment() {
+    this.invoicePaymentDate = this.dateValue();
+    this.showInvoicePaymentDialog = true;
+  }
+
+  confirmInvoicePayment() {
+    this.save(
+      this.api.payCardInvoice(this.year, this.month, this.invoicePaymentDate),
+      (payment) => {
+        this.invoicePayment = payment;
+        this.showInvoicePaymentDialog = false;
+        this.load();
+      },
+      'Fatura paga e registrada nas despesas.',
+    );
+  }
+
   deleteIncome(item: Income) {
-    this.askDelete(`Deseja excluir a receita “${item.description}”?`, this.api.deleteIncome(item.id), 'Receita excluída.');
+    const linked = item.investmentWithdrawalId !== null
+      ? ' A retirada correspondente também será removida do investimento.'
+      : '';
+    this.askDelete(`Deseja excluir a receita “${item.description}”?${linked}`, this.api.deleteIncome(item.id), 'Receita excluída.');
   }
 
   editExpense(item: Expense) {
@@ -389,6 +426,7 @@ export class DashboardComponent implements OnInit {
         cards: this.api.getCards(),
         purchases: this.api.getCardPurchases(this.year, this.month),
         benefitEntries: this.api.getBenefitEntries(),
+        invoicePayment: this.api.getCardInvoicePayment(this.year, this.month),
         summary: this.api.getMonthlySummary(this.year, this.month),
       }).pipe(map((data) => ({ ...data, expenses })))),
     ).subscribe({
@@ -399,6 +437,7 @@ export class DashboardComponent implements OnInit {
         this.cards = data.cards;
         this.purchases = data.purchases;
         this.benefitEntries = data.benefitEntries;
+        this.invoicePayment = data.invoicePayment;
         this.summary = data.summary;
         this.openingBalance = data.summary.openingBalance;
         if (!this.purchaseForm.creditCardId && this.cards.length) this.purchaseForm.creditCardId = this.cards[0].id;
@@ -471,8 +510,26 @@ export class DashboardComponent implements OnInit {
     return date.getFullYear() === this.year && date.getMonth() + 1 === this.month;
   }
 
+  private incomeBenefitCreditsBefore(year: number, monthExclusive: number) {
+    return this.incomes
+      .filter((income) => income.type === 1 && this.isBeforeMonth(income.receivedAt, year, monthExclusive))
+      .reduce((total, income) => total + income.amount, 0);
+  }
+
+  private benefitEntryBalanceBefore(year: number, monthExclusive: number) {
+    return this.benefitEntries
+      .filter((entry) => this.isBeforeMonth(entry.entryDate, year, monthExclusive))
+      .reduce((total, entry) => total + (entry.type === 0 ? entry.amount : -entry.amount), 0);
+  }
+
+  private isBeforeMonth(value: string, year: number, monthExclusive: number) {
+    const date = new Date(`${value}T00:00:00`);
+    return date.getFullYear() < year
+      || (date.getFullYear() === year && date.getMonth() + 1 < monthExclusive);
+  }
+
   private emptyIncome(): IncomeInput {
-    return { description: '', accountName: '', categoryName: 'Salário', receivedAt: this.dateValue(), amount: 0 };
+    return { description: '', accountName: '', categoryName: 'Salário', receivedAt: this.dateValue(), amount: 0, type: 0 };
   }
 
   private emptyExpense(): ExpenseInput {
@@ -502,7 +559,7 @@ export class DashboardComponent implements OnInit {
   }
 
   private emptyBenefit(): BenefitEntryInput {
-    return { description: '', entryDate: this.dateValue(), amount: 0, type: 0 };
+    return { description: '', entryDate: this.dateValue(), amount: 0, type: 1 };
   }
 
   private dateValue() {

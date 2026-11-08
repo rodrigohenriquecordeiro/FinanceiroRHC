@@ -8,7 +8,7 @@
           @if (item.id === 'annual') { <span class="side-new">12 meses</span> }
         </button>
       }
-      <a class="side-link" routerLink="/investimentos"><span class="side-icon">✧</span>Investimentos<span class="side-soon">Em breve</span></a>
+      <a class="side-link" routerLink="/investimentos"><span class="side-icon">✧</span>Investimentos</a>
     </nav>
     <div class="sidebar-bottom">
       <div class="user-chip"><span class="avatar">{{ name.slice(0, 1).toUpperCase() }}</span><div><strong>{{ name }}</strong><small>Minha conta</small></div></div>
@@ -61,11 +61,17 @@
         </div>
       </section>
     } @else if (!loading) {
-      @if (summary) {
+      @if (summary && area === 'overview') {
         <section class="metric-grid">
           <article class="metric-card metric-primary"><div class="metric-top"><span>Saldo projetado</span><span class="metric-icon">✳</span></div><strong>{{ summary.projectedBalance | currency:'BRL' }}</strong><small>Considerando todas as despesas do mês</small></article>
           <article class="metric-card"><div class="metric-top"><span>Receitas</span><span class="metric-icon green-icon">↗</span></div><strong>{{ summary.incomeTotal | currency:'BRL' }}</strong><small>{{ monthIncomes.length }} {{ monthIncomes.length === 1 ? 'recebimento' : 'recebimentos' }}</small></article>
           <article class="metric-card"><div class="metric-top"><span>Despesas pagas</span><span class="metric-icon orange-icon">↘</span></div><strong>{{ summary.paidExpensesTotal | currency:'BRL' }}</strong><small>De {{ summary.expensesTotal | currency:'BRL' }} previstos</small></article>
+        </section>
+      }
+
+      @if (area === 'expenses') {
+        <section class="income-summary-strip expense-summary-strip">
+          <article><span>Total das despesas em {{ monthLabel }}</span><strong>{{ monthExpenseTotal | currency:'BRL' }}</strong></article>
         </section>
       }
 
@@ -105,12 +111,17 @@
       }
 
       @if (area === 'income') {
+        <section class="income-summary-strip">
+          <article><span>Total de receitas em {{ monthLabel }}</span><strong>{{ monthIncomeTotal | currency:'BRL' }}</strong></article>
+          <article><span>Saldo que veio de {{ previousMonthLabel }}</span><strong>{{ (summary?.openingBalance ?? 0) | currency:'BRL' }}</strong></article>
+        </section>
         <section class="editor-layout">
           <article class="panel editor-panel">
             <div class="section-heading"><div><span class="eyebrow">ENTRADAS DO MÊS</span><h2>{{ editingIncomeId ? 'Editar receita' : 'Nova receita' }}</h2></div><span class="panel-icon">↗</span></div>
             <form (ngSubmit)="saveIncome()">
               <label>Descrição<input name="incomeDescription" [(ngModel)]="incomeForm.description" placeholder="Ex.: Salário mensal" required /></label>
-              <div class="field-pair"><label>Conta<input name="incomeAccount" [(ngModel)]="incomeForm.accountName" placeholder="Ex.: Conta corrente" required /></label><label>Categoria<input name="incomeCategory" [(ngModel)]="incomeForm.categoryName" placeholder="Salário, benefício..." required /></label></div>
+              <label>Tipo de entrada<select name="incomeType" [(ngModel)]="incomeForm.type" (ngModelChange)="incomeForm.categoryName = $event === 1 ? 'Benefício alimentação/refeição' : 'Salário'"><option [ngValue]="0">Receita</option><option [ngValue]="1">Crédito do vale alimentação/refeição</option></select></label>
+              <div class="field-pair"><label>Conta<input name="incomeAccount" [(ngModel)]="incomeForm.accountName" [placeholder]="incomeForm.type === 1 ? 'Ex.: Flash' : 'Ex.: Conta corrente'" required /></label><label>Categoria<input name="incomeCategory" [(ngModel)]="incomeForm.categoryName" [placeholder]="incomeForm.type === 1 ? 'Benefício alimentação/refeição' : 'Salário, benefício...'" required /></label></div>
               <div class="field-pair"><label>Data de recebimento<input type="date" name="incomeDate" [(ngModel)]="incomeForm.receivedAt" required /></label><label>Valor (R$)<input type="number" min="0.01" step="0.01" name="incomeAmount" [(ngModel)]="incomeForm.amount" required /></label></div>
               <button class="button button-primary" [disabled]="saving">{{ editingIncomeId ? 'Salvar alterações' : 'Salvar receita' }}</button>
             </form>
@@ -120,7 +131,7 @@
             @if (monthIncomes.length) {
               <div class="record-list">
                 @for (item of monthIncomes; track item.id) {
-                  <div class="record-row"><span class="record-symbol income-symbol">↗</span><div class="record-main"><strong>{{ item.description }}</strong><small>{{ item.categoryName }} · {{ item.accountName }} · {{ item.receivedAt | date:'dd/MM/yyyy' }}</small></div><strong class="record-value">{{ item.amount | currency:'BRL' }}</strong><div class="row-actions"><button type="button" (click)="editIncome(item)" aria-label="Editar receita">Editar</button><button type="button" (click)="deleteIncome(item)" aria-label="Excluir receita">Excluir</button></div></div>
+                  <div class="record-row"><span class="record-symbol income-symbol">↗</span><div class="record-main"><strong>{{ item.description }}</strong><small>{{ item.categoryName }} · {{ item.accountName }} · {{ item.receivedAt | date:'dd/MM/yyyy' }}</small></div><strong class="record-value">{{ item.amount | currency:'BRL' }}</strong><div class="row-actions">@if (item.investmentWithdrawalId === null) { <button type="button" (click)="editIncome(item)" aria-label="Editar receita">Editar</button> } @else { <small>Investimento</small> }<button type="button" (click)="deleteIncome(item)" aria-label="Excluir receita">Excluir</button></div></div>
                 }
               </div>
             } @else { <div class="empty-state"><span>↗</span><strong>Nenhuma receita por aqui</strong><small>Registre seus recebimentos para acompanhar o mês.</small></div> }
@@ -164,7 +175,7 @@
             @if (monthExpenses.length) {
               <div class="record-list">
                 @for (item of monthExpenses; track item.id) {
-                  <div class="record-row expense-row"><span class="record-symbol expense-symbol">↘</span><div class="record-main"><strong>{{ item.description }}</strong><small>{{ categoryLabel(item.categoryId) }} · {{ item.expenseDate | date:'dd/MM/yyyy' }}@if (item.installmentNumber) { · Parcela {{ item.installmentNumber }}{{ item.totalInstallments ? ' de ' + item.totalInstallments : ' · recorrente' }} }</small><span class="progress-track"><i [style.width.%]="budgetPercentage(item.amount)"></i></span><small>Peso no orçamento: {{ budgetPercentage(item.amount) | number:'1.0-1' }}%</small></div><div class="expense-value"><strong class="record-value">{{ item.amount | currency:'BRL' }}</strong><span class="paid-badge" [class.unpaid-badge]="!item.isPaid">{{ item.isPaid ? 'Pago' : 'Pendente' }}</span></div><div class="row-actions"><button type="button" (click)="editExpense(item)">Editar</button><button type="button" (click)="deleteExpense(item)">Excluir</button></div></div>
+                  <div class="record-row expense-row"><span class="record-symbol expense-symbol">↘</span><div class="record-main"><strong>{{ item.description }}</strong><small>{{ categoryLabel(item.categoryId) }} · {{ item.expenseDate | date:'dd/MM/yyyy' }}@if (item.installmentNumber) { · Parcela {{ item.installmentNumber }}{{ item.totalInstallments ? ' de ' + item.totalInstallments : ' · recorrente' }} }</small><span class="progress-track"><i [style.width.%]="budgetPercentage(item.amount)"></i></span><small>Peso no orçamento: {{ budgetPercentage(item.amount) | number:'1.0-1' }}%</small></div><div class="expense-value"><strong class="record-value">{{ item.amount | currency:'BRL' }}</strong><span class="paid-badge" [class.unpaid-badge]="!item.isPaid">{{ item.isPaid ? 'Pago' : 'Pendente' }}</span></div><div class="row-actions">@if (item.isInvestmentAdjustment) { <small>Investimento</small> } @else if (item.isInvoicePayment) { <small>Fatura paga</small> } @else { <button type="button" (click)="editExpense(item)">Editar</button><button type="button" (click)="deleteExpense(item)">Excluir</button> }</div></div>
                 }
               </div>
             } @else { <div class="empty-state"><span>↘</span><strong>Nenhuma despesa registrada</strong><small>Adicione uma despesa para projetar seu saldo.</small></div> }
@@ -176,10 +187,10 @@
         <section class="card-balance-strip"><span class="card-glyph">▤</span><div><small>CARTÕES CADASTRADOS</small><strong>{{ cards.length }} {{ cards.length === 1 ? 'cartão' : 'cartões' }}</strong></div><button class="button button-light" type="button" (click)="showCardEditor = true">Gerenciar cartões</button></section>
         <section class="editor-layout">
           <article class="panel editor-panel">
-            <div class="section-heading"><div><span class="eyebrow">COMPRAS NO CRÉDITO</span><h2>{{ editingPurchaseId ? 'Editar compra' : 'Nova compra' }}</h2></div><button class="button button-light" type="button" (click)="openCategoryEditor()">+ Nova categoria</button></div>
+            <div class="section-heading"><div><span class="eyebrow">COMPRAS NO CRÉDITO</span><h2>{{ editingPurchaseId ? 'Editar compra' : 'Nova compra' }}</h2></div><span class="panel-icon">▤</span></div>
             <form (ngSubmit)="savePurchase()">
               <label>Cartão<select name="purchaseCard" [(ngModel)]="purchaseForm.creditCardId" required><option [ngValue]="0" disabled>Selecione o cartão</option>@for (card of cards; track card.id) { <option [ngValue]="card.id">{{ card.name }}</option> }</select></label>
-              <label>Categoria<select name="purchaseCategory" [(ngModel)]="purchaseForm.categoryId" required><option [ngValue]="0" disabled>Selecione a categoria</option>@for (category of categories; track category.id) { @if (category.type === 'expense') { <option [ngValue]="category.id">{{ category.name }}</option> } }</select></label>
+              <div class="category-with-action"><label>Categoria<select name="purchaseCategory" [(ngModel)]="purchaseForm.categoryId" required><option [ngValue]="0" disabled>Selecione a categoria</option>@for (category of categories; track category.id) { @if (category.type === 'expense') { <option [ngValue]="category.id">{{ category.name }}</option> } }</select></label><button class="text-action" type="button" (click)="openCategoryEditor()">+ Nova categoria</button></div>
               <label>Descrição da compra<input name="purchaseDescription" [(ngModel)]="purchaseForm.description" placeholder="Ex.: Mercado" required /></label>
               <div class="field-pair"><label>Data da compra<input type="date" name="purchaseDate" [(ngModel)]="purchaseForm.purchaseDate" required /></label><label>Valor (R$)<input type="number" min="0.01" step="0.01" name="purchaseAmount" [(ngModel)]="purchaseForm.amount" required /></label></div>
               <label>Recorrência<select name="purchaseRecurrence" [(ngModel)]="purchaseForm.recurrenceType" [disabled]="editingPurchaseId !== undefined"><option [ngValue]="0">Sem recorrência</option><option [ngValue]="1">A partir da parcela x de y</option><option [ngValue]="2">Sem limite</option></select></label>
@@ -199,19 +210,18 @@
                 <div class="record-row"><span class="record-symbol card-symbol">▤</span><div class="record-main"><strong>{{ item.description }}</strong><small>{{ cardLabel(item.creditCardId) }} · {{ item.purchaseDate | date:'dd/MM/yyyy' }}@if (item.categoryId) { · {{ categoryLabel(item.categoryId) }} }@if (item.installmentNumber) { · Parcela {{ item.installmentNumber }}{{ item.totalInstallments ? ' de ' + item.totalInstallments : ' · recorrente' }} }</small></div><div class="expense-value"><strong class="record-value">{{ item.amount | currency:'BRL' }}</strong></div><div class="row-actions"><button type="button" (click)="editPurchase(item)">Editar</button><button type="button" (click)="deletePurchase(item)">×</button></div></div>
               }</div>
             } @else { <div class="empty-state"><span>▤</span><strong>Seu extrato está vazio</strong><small>Adicione compras para acompanhar o uso do cartão.</small></div> }
-            <div class="card-invoice-total"><span>Total da fatura do mês</span><strong>{{ monthCardTotal | currency:'BRL' }}</strong></div>
+            <div class="card-invoice-total"><span>Total da fatura do mês</span><strong>{{ monthCardTotal | currency:'BRL' }}</strong>@if (invoicePayment.isPaid) { <span class="invoice-paid-label">Paga em {{ invoicePayment.paidAt | date:'dd/MM/yyyy' }}</span> } @else { <button type="button" class="button button-primary" [disabled]="saving || monthCardTotal <= 0" (click)="openInvoicePayment()">Pagar fatura</button> }</div>
           </article>
         </section>
       }
 
       @if (area === 'benefit') {
-        <section class="benefit-balance-card"><span class="benefit-mark">✳</span><div><small>SALDO DISPONÍVEL · {{ monthLabel.toUpperCase() }}</small><strong>{{ benefitBalance | currency:'BRL' }}</strong><p>Recargas adicionam saldo. Compras registradas são descontadas automaticamente.</p></div><div class="benefit-totals"><span>Entradas <b>{{ benefitRechargeCount }}</b></span><span>Compras <b>{{ benefitPurchaseCount }}</b></span></div></section>
+        <section class="benefit-balance-card"><span class="benefit-mark">✳</span><div><small>SALDO DISPONÍVEL · {{ monthLabel.toUpperCase() }}</small><strong>{{ benefitBalance | currency:'BRL' }}</strong><p>Créditos são lançados em Receitas. O saldo restante é carregado para o próximo mês.</p></div><div class="benefit-totals"><span>Saldo de {{ previousMonthLabel }} <b>{{ previousBenefitBalance | currency:'BRL' }}</b></span><span>Créditos <b>{{ benefitRechargeCount }}</b></span><span>Compras <b>{{ benefitPurchaseCount }}</b></span></div></section>
         <section class="editor-layout">
           <article class="panel editor-panel">
             <div class="section-heading"><div><span class="eyebrow">BENEFÍCIO · FLASH</span><h2>{{ editingBenefitId ? 'Editar lançamento' : 'Novo lançamento' }}</h2></div><span class="panel-icon">✳</span></div>
             <form (ngSubmit)="saveBenefit()">
-              <label>Tipo de lançamento<select name="benefitType" [(ngModel)]="benefitForm.type"><option [ngValue]="0">Recarga (entrada)</option><option [ngValue]="1">Compra (saída)</option></select></label>
-              <label>Descrição<input name="benefitDescription" [(ngModel)]="benefitForm.description" placeholder="Ex.: Recarga mensal ou almoço" required /></label>
+              <label>Descrição da compra<input name="benefitDescription" [(ngModel)]="benefitForm.description" placeholder="Ex.: Almoço" required /></label>
               <div class="field-pair"><label>Data<input type="date" name="benefitDate" [(ngModel)]="benefitForm.entryDate" required /></label><label>Valor (R$)<input type="number" min="0.01" step="0.01" name="benefitAmount" [(ngModel)]="benefitForm.amount" required /></label></div>
               <button class="button button-primary" [disabled]="saving">{{ editingBenefitId ? 'Salvar alterações' : 'Salvar lançamento' }}</button>
             </form>
@@ -248,6 +258,23 @@
       <span class="eyebrow">SEUS CARTÕES</span><h2 id="card-title">Gerenciar cartões</h2>
       <form class="inline-editor" (ngSubmit)="saveCard()"><input name="cardName" [(ngModel)]="cardName" placeholder="Nome do cartão" required /><button class="button button-primary" [disabled]="saving">{{ editingCardId ? 'Atualizar' : 'Adicionar' }}</button></form>
       <div class="modal-list">@for (card of cards; track card.id) { <div><span>{{ card.name }}<small>Cartão de crédito</small></span><button type="button" (click)="startCardEdit(card)">Editar nome</button><button type="button" class="danger-action" (click)="deleteCard(card)">Excluir</button></div> }</div>
+    </section>
+  </div>
+}
+
+@if (showInvoicePaymentDialog) {
+  <div class="modal-backdrop" (click)="showInvoicePaymentDialog = false">
+    <section class="modal-card" role="dialog" aria-modal="true" aria-labelledby="invoice-payment-title" (click)="$event.stopPropagation()">
+      <button type="button" class="modal-close" (click)="showInvoicePaymentDialog = false" aria-label="Fechar">×</button>
+      <span class="eyebrow">PAGAMENTO DO CARTÃO</span>
+      <h2 id="invoice-payment-title">Pagar fatura de {{ monthLabel }}</h2>
+      <p class="invoice-payment-amount">Total a pagar <strong>{{ monthCardTotal | currency:'BRL' }}</strong></p>
+      <label>Data do pagamento<input type="date" name="invoicePaymentDate" [(ngModel)]="invoicePaymentDate" required /></label>
+      <p>O pagamento será registrado como despesa paga e atualizará seu saldo financeiro.</p>
+      <div class="delete-actions">
+        <button type="button" class="button button-light" (click)="showInvoicePaymentDialog = false">Cancelar</button>
+        <button type="button" class="button button-primary" [disabled]="saving || !invoicePaymentDate" (click)="confirmInvoicePayment()">{{ saving ? 'Processando...' : 'Confirmar pagamento' }}</button>
+      </div>
     </section>
   </div>
 }

@@ -19,4 +19,10 @@ public class Expense : IUserOwnedEntity
     public int? InstallmentNumber { get; set; }
     public int? TotalInstallments { get; set; }
     public bool IsDeleted { get; set; }
+    public int? InvestmentId { get; set; }
+    [JsonIgnore]
+    public Investment? Investment { get; set; }
+    public int? InvestmentWithdrawalId { get; set; }
+    [JsonIgnore]
+    public InvestmentWithdrawal? InvestmentWithdrawal { get; set; }
 }

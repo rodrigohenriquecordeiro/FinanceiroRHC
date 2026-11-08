@@ -44,6 +44,22 @@ public class FinanceService(ApplicationDbContext context, IRepositoryProvider re
         {
             return false;
         }
+        if (entity is Expense { InvestmentId: not null } or Expense { InvestmentWithdrawalId: not null })
+        {
+            throw new ArgumentException("Este ajuste é vinculado a um investimento. Exclua ou edite o investimento correspondente.");
+        }
+        if (entity is Income { InvestmentWithdrawalId: not null } investmentIncome)
+        {
+            var withdrawal = await context.InvestmentWithdrawals.FirstOrDefaultAsync(
+                item => item.Id == investmentIncome.InvestmentWithdrawalId && item.UserId == userId,
+                cancellationToken);
+            if (withdrawal is not null)
+            {
+                context.InvestmentWithdrawals.Remove(withdrawal);
+                await context.SaveChangesAsync(cancellationToken);
+                return true;
+            }
+        }
         if (entity is Expense { RecurrenceRuleId: not null } recurringExpense)
         {
             recurringExpense.IsDeleted = true;
@@ -83,7 +99,9 @@ public class FinanceService(ApplicationDbContext context, IRepositoryProvider re
                 item.IsPaid,
                 item.RecurrenceRuleId == null ? ExpenseRecurrenceType.None : item.RecurrenceRule!.RecurrenceType,
                 item.InstallmentNumber,
-                item.TotalInstallments))
+                item.TotalInstallments,
+                item.InvestmentId != null || item.InvestmentWithdrawalId != null,
+                context.CreditCardInvoicePayments.Any(payment => payment.ExpenseId == item.Id)))
             .ToListAsync(cancellationToken);
     }
 
@@ -99,6 +117,16 @@ public class FinanceService(ApplicationDbContext context, IRepositoryProvider re
                 expense => expense.Id == id && expense.UserId == userId,
                 cancellationToken)
                 ?? throw new KeyNotFoundException("Despesa não encontrada.");
+            if (existing.InvestmentId is not null || existing.InvestmentWithdrawalId is not null)
+            {
+                throw new ArgumentException("Este ajuste é vinculado a um investimento. Edite o investimento correspondente.");
+            }
+            if (await context.CreditCardInvoicePayments.AnyAsync(
+                    payment => payment.ExpenseId == existing.Id,
+                    cancellationToken))
+            {
+                throw new ArgumentException("Esta despesa registra o pagamento de uma fatura. Use a área do Cartão de Crédito para gerenciá-la.");
+            }
             existing.Description = request.Description.Trim();
             existing.CategoryId = request.CategoryId;
             existing.ExpenseDate = request.ExpenseDate;
@@ -307,6 +335,261 @@ public class FinanceService(ApplicationDbContext context, IRepositoryProvider re
         return true;
     }
 
+    public async Task<CreditCardInvoicePaymentResponse> GetCardInvoicePaymentAsync(
+        string userId,
+        int year,
+        int month,
+        CancellationToken cancellationToken)
+    {
+        ValidateYearMonth(year, month);
+        var payment = await context.CreditCardInvoicePayments.FirstOrDefaultAsync(
+            item => item.UserId == userId && item.Year == year && item.Month == month,
+            cancellationToken);
+        return payment is null
+            ? new CreditCardInvoicePaymentResponse(false, 0, null)
+            : new CreditCardInvoicePaymentResponse(true, payment.Amount, payment.PaidAt);
+    }
+
+    public async Task<CreditCardInvoicePaymentResponse> PayCardInvoiceAsync(
+        string userId,
+        CreditCardInvoicePaymentRequest request,
+        CancellationToken cancellationToken)
+    {
+        ValidateYearMonth(request.Year, request.Month);
+        if (await context.CreditCardInvoicePayments.AnyAsync(
+                item => item.UserId == userId && item.Year == request.Year && item.Month == request.Month,
+                cancellationToken))
+        {
+            throw new ArgumentException("A fatura deste mês já foi paga.");
+        }
+
+        var invoiceStart = new DateOnly(request.Year, request.Month, 1);
+        var invoiceEnd = invoiceStart.AddMonths(1);
+        await EnsureRecurringCardPurchasesForRangeAsync(userId, invoiceStart, invoiceEnd, cancellationToken);
+        var amount = await context.CreditCardPurchases
+            .Where(item => item.UserId == userId && item.PurchaseDate >= invoiceStart && item.PurchaseDate < invoiceEnd)
+            .SumAsync(item => (decimal?)item.Amount, cancellationToken) ?? 0;
+        if (amount <= 0)
+        {
+            throw new ArgumentException("Não há compras nesta fatura para pagar.");
+        }
+
+        await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
+        var category = await context.Categories.FirstOrDefaultAsync(
+            item => item.UserId == userId && item.Type == "expense" && item.Name == "Cartão de crédito",
+            cancellationToken);
+        if (category is null)
+        {
+            category = new FinancialCategory
+            {
+                UserId = userId,
+                Name = "Cartão de crédito",
+                Type = "expense"
+            };
+            context.Categories.Add(category);
+        }
+
+        var expense = new Expense
+        {
+            UserId = userId,
+            Description = $"Pagamento da fatura do cartão - {request.Month:D2}/{request.Year}",
+            Category = category,
+            ExpenseDate = request.PaidAt,
+            Amount = amount,
+            IsPaid = true
+        };
+        context.Expenses.Add(expense);
+        await context.SaveChangesAsync(cancellationToken);
+        var payment = new CreditCardInvoicePayment
+        {
+            UserId = userId,
+            Year = request.Year,
+            Month = request.Month,
+            Amount = amount,
+            PaidAt = request.PaidAt,
+            ExpenseId = expense.Id
+        };
+        context.CreditCardInvoicePayments.Add(payment);
+        await context.SaveChangesAsync(cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+        return new CreditCardInvoicePaymentResponse(true, amount, request.PaidAt);
+    }
+
+    public async Task<List<InvestmentResponse>> GetInvestmentsAsync(
+        string userId,
+        CancellationToken cancellationToken)
+    {
+        var investments = await context.Investments
+            .Where(item => item.UserId == userId)
+            .OrderBy(item => item.ApplicationDate)
+            .ToListAsync(cancellationToken);
+        var withdrawals = await context.InvestmentWithdrawals
+            .Where(item => item.UserId == userId)
+            .OrderBy(item => item.WithdrawalDate)
+            .ToListAsync(cancellationToken);
+        return investments.Select(investment => ToInvestmentResponse(
+            investment,
+            withdrawals.Where(item => item.InvestmentId == investment.Id).ToList())).ToList();
+    }
+
+    public async Task<InvestmentResponse> SaveInvestmentAsync(
+        InvestmentRequest request,
+        int? id,
+        string userId,
+        CancellationToken cancellationToken)
+    {
+        ValidateInvestment(request);
+        Investment investment;
+        FinancialCategory? category = null;
+        if (id is null)
+        {
+            investment = new Investment
+            {
+                UserId = userId,
+                Description = request.Description.Trim(),
+                ApplicationDate = request.ApplicationDate,
+                MaturityDate = request.MaturityDate,
+                Amount = request.Amount
+            };
+            category = await GetOrCreateInvestmentCategoryAsync(userId, cancellationToken);
+            context.Investments.Add(investment);
+            context.Expenses.Add(new Expense
+            {
+                UserId = userId,
+                Description = $"Aporte de investimento: {request.Description.Trim()}",
+                Category = category,
+                ExpenseDate = request.ApplicationDate,
+                Amount = request.Amount,
+                IsPaid = true,
+                Investment = investment
+            });
+        }
+        else
+        {
+            investment = await context.Investments.FirstOrDefaultAsync(
+                item => item.Id == id && item.UserId == userId,
+                cancellationToken)
+                ?? throw new KeyNotFoundException("Investimento não encontrado.");
+            var existingWithdrawals = await context.InvestmentWithdrawals
+                .Where(item => item.InvestmentId == investment.Id && item.UserId == userId)
+                .ToListAsync(cancellationToken);
+            if (existingWithdrawals.Any(item => item.WithdrawalDate < request.ApplicationDate)
+                || existingWithdrawals.Sum(item => item.Amount) > request.Amount)
+            {
+                throw new ArgumentException("A aplicação não pode ser alterada para ficar anterior ou inferior às retiradas já registradas.");
+            }
+            investment.Description = request.Description.Trim();
+            investment.ApplicationDate = request.ApplicationDate;
+            investment.MaturityDate = request.MaturityDate;
+            investment.Amount = request.Amount;
+            var expense = await context.Expenses.IgnoreQueryFilters().FirstOrDefaultAsync(
+                item => item.InvestmentId == investment.Id && item.UserId == userId,
+                cancellationToken);
+            if (expense is not null)
+            {
+                expense.Description = $"Aporte de investimento: {request.Description.Trim()}";
+                expense.ExpenseDate = request.ApplicationDate;
+                expense.Amount = request.Amount;
+                expense.IsPaid = true;
+            }
+        }
+
+        await context.SaveChangesAsync(cancellationToken);
+        var investmentWithdrawals = await context.InvestmentWithdrawals
+            .Where(item => item.UserId == userId && item.InvestmentId == investment.Id)
+            .OrderBy(item => item.WithdrawalDate)
+            .ToListAsync(cancellationToken);
+        return ToInvestmentResponse(investment, investmentWithdrawals);
+    }
+
+    public async Task<InvestmentWithdrawalResponse> WithdrawInvestmentAsync(
+        int investmentId,
+        InvestmentWithdrawalRequest request,
+        string userId,
+        CancellationToken cancellationToken)
+    {
+        var investment = await context.Investments.FirstOrDefaultAsync(
+            item => item.Id == investmentId && item.UserId == userId,
+            cancellationToken)
+            ?? throw new KeyNotFoundException("Investimento não encontrado.");
+        if (request.WithdrawalDate < investment.ApplicationDate)
+        {
+            throw new ArgumentException("A data da retirada não pode ser anterior à aplicação.");
+        }
+        var withdrawn = await context.InvestmentWithdrawals
+            .Where(item => item.UserId == userId && item.InvestmentId == investmentId)
+            .SumAsync(item => (decimal?)item.Amount, cancellationToken) ?? 0;
+        if (request.Amount > investment.Amount - withdrawn)
+        {
+            throw new ArgumentException("O valor da retirada excede o saldo disponível do investimento.");
+        }
+        if (request.ReturnAmount < -request.Amount)
+        {
+            throw new ArgumentException("A perda não pode ser maior que o valor retirado do principal.");
+        }
+
+        var withdrawal = new InvestmentWithdrawal
+        {
+            UserId = userId,
+            InvestmentId = investmentId,
+            WithdrawalDate = request.WithdrawalDate,
+            Amount = request.Amount,
+            ReturnAmount = request.ReturnAmount
+        };
+        context.InvestmentWithdrawals.Add(withdrawal);
+        context.Incomes.Add(new Income
+        {
+            UserId = userId,
+            Description = $"Retirada de investimento: {investment.Description}",
+            AccountName = "Investimentos",
+            CategoryName = "Retirada de investimento",
+            ReceivedAt = request.WithdrawalDate,
+            Amount = request.Amount + Math.Max(0, request.ReturnAmount),
+            Type = IncomeType.Regular,
+            InvestmentWithdrawal = withdrawal
+        });
+        if (request.ReturnAmount < 0)
+        {
+            var category = await GetOrCreateInvestmentCategoryAsync(userId, cancellationToken);
+            context.Expenses.Add(new Expense
+            {
+                UserId = userId,
+                Description = $"Perda em investimento: {investment.Description}",
+                Category = category,
+                ExpenseDate = request.WithdrawalDate,
+                Amount = -request.ReturnAmount,
+                IsPaid = true,
+                InvestmentWithdrawal = withdrawal
+            });
+        }
+        await context.SaveChangesAsync(cancellationToken);
+        return new InvestmentWithdrawalResponse(
+            withdrawal.Id,
+            withdrawal.WithdrawalDate,
+            withdrawal.Amount,
+            withdrawal.ReturnAmount);
+    }
+
+    public async Task<bool> DeleteInvestmentWithdrawalAsync(
+        int investmentId,
+        int withdrawalId,
+        string userId,
+        CancellationToken cancellationToken)
+    {
+        var withdrawal = await context.InvestmentWithdrawals.FirstOrDefaultAsync(
+            item => item.Id == withdrawalId
+                && item.InvestmentId == investmentId
+                && item.UserId == userId,
+            cancellationToken);
+        if (withdrawal is null)
+        {
+            return false;
+        }
+        context.InvestmentWithdrawals.Remove(withdrawal);
+        await context.SaveChangesAsync(cancellationToken);
+        return true;
+    }
+
     public async Task<bool> HasExpensesUsingCategoryAsync(
         int categoryId,
         string userId,
@@ -440,7 +723,8 @@ public class FinanceService(ApplicationDbContext context, IRepositoryProvider re
             incomes.Sum(item => item.Amount),
             expenses.Sum(item => item.Amount),
             purchases.Sum(item => item.Amount),
-            benefitEntries.Where(item => item.Type == BenefitEntryType.Recharge).Sum(item => item.Amount),
+            benefitEntries.Where(item => item.Type == BenefitEntryType.Recharge).Sum(item => item.Amount)
+                + incomes.Where(item => item.Type == IncomeType.BenefitCredit).Sum(item => item.Amount),
             benefitEntries.Where(item => item.Type == BenefitEntryType.Purchase).Sum(item => item.Amount),
             months);
     }
@@ -654,6 +938,60 @@ public class FinanceService(ApplicationDbContext context, IRepositoryProvider re
             recurrenceType,
             purchase.InstallmentNumber,
             purchase.TotalInstallments);
+
+    private async Task<FinancialCategory> GetOrCreateInvestmentCategoryAsync(
+        string userId,
+        CancellationToken cancellationToken)
+    {
+        var category = await context.Categories.FirstOrDefaultAsync(
+            item => item.UserId == userId && item.Type == "expense" && item.Name == "Investimentos",
+            cancellationToken);
+        if (category is not null)
+        {
+            return category;
+        }
+
+        category = new FinancialCategory
+        {
+            UserId = userId,
+            Name = "Investimentos",
+            Type = "expense"
+        };
+        context.Categories.Add(category);
+        return category;
+    }
+
+    private static void ValidateInvestment(InvestmentRequest request)
+    {
+        if (request.MaturityDate < request.ApplicationDate)
+        {
+            throw new ArgumentException("O vencimento não pode ser anterior à data da aplicação.");
+        }
+        if (request.Amount <= 0)
+        {
+            throw new ArgumentException("O valor aplicado deve ser maior que zero.");
+        }
+    }
+
+    private static InvestmentResponse ToInvestmentResponse(
+        Investment investment,
+        IReadOnlyList<InvestmentWithdrawal> withdrawals)
+    {
+        var withdrawnAmount = withdrawals.Sum(item => item.Amount);
+        return new InvestmentResponse(
+            investment.Id,
+            investment.Description,
+            investment.ApplicationDate,
+            investment.MaturityDate,
+            investment.Amount,
+            withdrawnAmount,
+            investment.Amount - withdrawnAmount,
+            withdrawals.Select(item => new InvestmentWithdrawalResponse(
+                item.Id,
+                item.WithdrawalDate,
+                item.Amount,
+                item.ReturnAmount)).ToList());
+    }
 
     private async Task<decimal> GetOpeningBalanceAsync(
         string userId,

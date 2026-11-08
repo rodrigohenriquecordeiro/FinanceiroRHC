@@ -18,7 +18,8 @@ public sealed record IncomeRequest(
     [param: Required, StringLength(100)] string AccountName,
     [param: Required, StringLength(80)] string CategoryName,
     DateOnly ReceivedAt,
-    [param: Range(0.01, 999999999)] decimal Amount);
+    [param: Range(0.01, 999999999)] decimal Amount,
+    IncomeType Type = IncomeType.Regular);
 public sealed record ExpenseRequest(
     [param: Required, StringLength(160)] string Description,
     int CategoryId,
@@ -37,7 +38,9 @@ public sealed record ExpenseResponse(
     bool IsPaid,
     ExpenseRecurrenceType RecurrenceType,
     int? InstallmentNumber,
-    int? TotalInstallments);
+    int? TotalInstallments,
+    bool IsInvestmentAdjustment = false,
+    bool IsInvoicePayment = false);
 public sealed record CategoryRequest(
     [param: Required, StringLength(80)] string Name,
     [param: RegularExpression("^(expense|income)$")] string Type = "expense");
@@ -66,6 +69,34 @@ public sealed record BenefitEntryRequest(
     DateOnly EntryDate,
     [param: Range(0.01, 999999999)] decimal Amount,
     BenefitEntryType Type);
+public sealed record CreditCardInvoicePaymentRequest(int Year, int Month, DateOnly PaidAt);
+public sealed record CreditCardInvoicePaymentResponse(
+    bool IsPaid,
+    decimal Amount,
+    DateOnly? PaidAt);
+public sealed record InvestmentRequest(
+    [param: Required, StringLength(160)] string Description,
+    DateOnly ApplicationDate,
+    DateOnly MaturityDate,
+    [param: Range(0.01, 999999999)] decimal Amount);
+public sealed record InvestmentWithdrawalRequest(
+    DateOnly WithdrawalDate,
+    [param: Range(0.01, 999999999)] decimal Amount,
+    [param: Range(-999999999, 999999999)] decimal ReturnAmount = 0);
+public sealed record InvestmentWithdrawalResponse(
+    int Id,
+    DateOnly WithdrawalDate,
+    decimal Amount,
+    decimal ReturnAmount);
+public sealed record InvestmentResponse(
+    int Id,
+    string Description,
+    DateOnly ApplicationDate,
+    DateOnly MaturityDate,
+    decimal Amount,
+    decimal WithdrawnAmount,
+    decimal CurrentTotal,
+    IReadOnlyList<InvestmentWithdrawalResponse> Withdrawals);
 public sealed record BalanceOverrideRequest(int Year, int Month, decimal Amount);
 public sealed record MonthlySummary(
     int Year,

@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace FinanceiroRHC.Api.Models;
 
 public class Income : IUserOwnedEntity
@@ -9,4 +11,14 @@ public class Income : IUserOwnedEntity
     public required string CategoryName { get; set; }
     public DateOnly ReceivedAt { get; set; }
     public decimal Amount { get; set; }
+    public IncomeType Type { get; set; }
+    public int? InvestmentWithdrawalId { get; set; }
+    [JsonIgnore]
+    public InvestmentWithdrawal? InvestmentWithdrawal { get; set; }
+}
+
+public enum IncomeType
+{
+    Regular,
+    BenefitCredit
 }

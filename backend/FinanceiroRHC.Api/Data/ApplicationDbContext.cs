@@ -16,6 +16,9 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
     public DbSet<CardPurchaseRecurrenceRule> CardPurchaseRecurrenceRules => Set<CardPurchaseRecurrenceRule>();
     public DbSet<BenefitEntry> BenefitEntries => Set<BenefitEntry>();
     public DbSet<MonthlyBalanceOverride> MonthlyBalanceOverrides => Set<MonthlyBalanceOverride>();
+    public DbSet<Investment> Investments => Set<Investment>();
+    public DbSet<InvestmentWithdrawal> InvestmentWithdrawals => Set<InvestmentWithdrawal>();
+    public DbSet<CreditCardInvoicePayment> CreditCardInvoicePayments => Set<CreditCardInvoicePayment>();
 
     protected override void OnModelCreating(ModelBuilder builder)
     {
@@ -26,6 +29,58 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             .IsUnique();
         builder.Entity<MonthlyBalanceOverride>()
             .HasIndex(balance => new { balance.UserId, balance.Year, balance.Month })
+            .IsUnique();
+        builder.Entity<CreditCardInvoicePayment>()
+            .HasIndex(payment => new { payment.UserId, payment.Year, payment.Month })
+            .IsUnique();
+        builder.Entity<CreditCardInvoicePayment>()
+            .HasIndex(payment => payment.ExpenseId)
+            .IsUnique();
+        builder.Entity<CreditCardInvoicePayment>()
+            .HasOne(payment => payment.Expense)
+            .WithMany()
+            .HasForeignKey(payment => payment.ExpenseId)
+            .HasConstraintName("FK_InvoicePayments_Expense")
+            .OnDelete(DeleteBehavior.Cascade);
+        builder.Entity<Investment>()
+            .HasOne<ApplicationUser>()
+            .WithMany()
+            .HasForeignKey(investment => investment.UserId)
+            .OnDelete(DeleteBehavior.Cascade);
+        builder.Entity<InvestmentWithdrawal>()
+            .HasOne(withdrawal => withdrawal.Investment)
+            .WithMany(investment => investment.Withdrawals)
+            .HasForeignKey(withdrawal => withdrawal.InvestmentId)
+            .HasConstraintName("FK_InvestmentWithdrawals_Investment")
+            .OnDelete(DeleteBehavior.Cascade);
+        builder.Entity<InvestmentWithdrawal>()
+            .HasOne<ApplicationUser>()
+            .WithMany()
+            .HasForeignKey(withdrawal => withdrawal.UserId)
+            .OnDelete(DeleteBehavior.Cascade);
+        builder.Entity<Income>()
+            .HasOne(income => income.InvestmentWithdrawal)
+            .WithMany()
+            .HasForeignKey(income => income.InvestmentWithdrawalId)
+            .HasConstraintName("FK_Incomes_InvestmentWithdrawal")
+            .OnDelete(DeleteBehavior.Cascade);
+        builder.Entity<Income>()
+            .HasIndex(income => income.InvestmentWithdrawalId)
+            .IsUnique();
+        builder.Entity<Expense>()
+            .HasOne(expense => expense.Investment)
+            .WithMany()
+            .HasForeignKey(expense => expense.InvestmentId)
+            .HasConstraintName("FK_Expenses_Investment")
+            .OnDelete(DeleteBehavior.Cascade);
+        builder.Entity<Expense>()
+            .HasOne(expense => expense.InvestmentWithdrawal)
+            .WithMany()
+            .HasForeignKey(expense => expense.InvestmentWithdrawalId)
+            .HasConstraintName("FK_Expenses_InvestmentWithdrawal")
+            .OnDelete(DeleteBehavior.Cascade);
+        builder.Entity<Expense>()
+            .HasIndex(expense => expense.InvestmentWithdrawalId)
             .IsUnique();
         builder.Entity<Expense>()
             .HasOne(expense => expense.Category)
@@ -98,5 +153,9 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
         builder.Entity<CardPurchaseRecurrenceRule>().Property(rule => rule.Amount).HasPrecision(12, 2);
         builder.Entity<BenefitEntry>().Property(entry => entry.Amount).HasPrecision(12, 2);
         builder.Entity<MonthlyBalanceOverride>().Property(balance => balance.Amount).HasPrecision(12, 2);
+        builder.Entity<Investment>().Property(investment => investment.Amount).HasPrecision(12, 2);
+        builder.Entity<InvestmentWithdrawal>().Property(withdrawal => withdrawal.Amount).HasPrecision(12, 2);
+        builder.Entity<InvestmentWithdrawal>().Property(withdrawal => withdrawal.ReturnAmount).HasPrecision(12, 2);
+        builder.Entity<CreditCardInvoicePayment>().Property(payment => payment.Amount).HasPrecision(12, 2);
     }
 }
