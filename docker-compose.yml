@@ -1,0 +1,49 @@
+services:
+  mysql:
+    image: mysql:8.4
+    container_name: financeiro-rhc-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?Defina MYSQL_ROOT_PASSWORD no arquivo .env}
+      MYSQL_DATABASE: financeirorhc
+      MYSQL_USER: financeiro
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?Defina MYSQL_PASSWORD no arquivo .env}
+    ports:
+      - "3308:3306"
+    volumes:
+      - financeiro-rhc-mysql:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -u root -p$${MYSQL_ROOT_PASSWORD} --silent"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  api:
+    build:
+      context: .
+      dockerfile: backend/FinanceiroRHC.Api/Dockerfile
+    container_name: financeiro-rhc-api
+    restart: unless-stopped
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      ConnectionStrings__DefaultConnection: "Server=mysql;Port=3306;Database=financeirorhc;User=financeiro;Password=${MYSQL_PASSWORD:?Defina MYSQL_PASSWORD no arquivo .env}"
+      Jwt__Key: ${JWT_KEY:?Defina JWT_KEY no arquivo .env}
+    ports:
+      - "5002:8080"
+    depends_on:
+      mysql:
+        condition: service_healthy
+
+  frontend:
+    build:
+      context: frontend
+      dockerfile: Dockerfile
+    container_name: financeiro-rhc-frontend
+    restart: unless-stopped
+    ports:
+      - "4201:4201"
+    depends_on:
+      - api
+
+volumes:
+  financeiro-rhc-mysql:

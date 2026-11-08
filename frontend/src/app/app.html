@@ -1,0 +1,17 @@
+<header class="site-header">
+  <a class="brand" routerLink="/" aria-label="Financeiro RHC - início"><span class="brand-mark">f.</span><span>financeiro<span class="brand-light">rhc</span></span></a>
+  <nav class="top-nav" aria-label="Navegação principal">
+    <a routerLink="/" routerLinkActive="nav-current" [routerLinkActiveOptions]="{ exact: true }">Início</a>
+    <a routerLink="/painel" routerLinkActive="nav-current">Meu painel</a>
+  </nav>
+  <div class="header-actions">
+    @if (isLoggedIn()) {
+      <a routerLink="/painel" class="header-login">Abrir meu painel <span>→</span></a>
+    } @else {
+      <a routerLink="/login" class="header-login">Entrar</a>
+      <a routerLink="/cadastro" class="header-join">Criar conta <span>↗</span></a>
+    }
+  </div>
+</header>
+<router-outlet />
+<footer class="site-footer"><a class="brand footer-brand" routerLink="/"><span class="brand-mark">f.</span><span>financeiro<span class="brand-light">rhc</span></span></a><span>Feito para cuidar melhor do que importa.</span><span>© {{ currentYear }} Financeiro RHC</span></footer>
